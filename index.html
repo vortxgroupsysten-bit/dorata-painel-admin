@@ -1405,8 +1405,7 @@
         const statusText = document.getElementById('statusText');
         const notificationDot = document.getElementById('notificationDot');
 
-        // ===== FUNÇÕES AUXILIARES =====
-
+        // ===== FUNÇÕES AUXILIARES CORRIGIDAS =====
         function formatCurrency(value) {
             return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         }
@@ -1442,16 +1441,43 @@
             return map[method] || 'fa-money-bill';
         }
 
+        // ===== FUNÇÕES CORRIGIDAS PARA TIPO DE ENTREGA =====
         function getTypeLabel(type) {
-            return type === 'delivery' ? 'Entrega' : 'Retirada';
+            // Aceitar múltiplas variações do tipo
+            if (type === 'delivery' || type === 'entrega' || type === 'Entrega' || type === 'entrega' || type === 'ENTREGA') {
+                return 'Entrega';
+            }
+            return 'Retirada';
         }
 
         function getTypeIcon(type) {
-            return type === 'delivery' ? 'fa-truck' : 'fa-store';
+            if (type === 'delivery' || type === 'entrega' || type === 'Entrega' || type === 'entrega' || type === 'ENTREGA') {
+                return 'fa-truck';
+            }
+            return 'fa-store';
         }
 
         function getTypeClass(type) {
-            return type === 'delivery' ? 'delivery' : 'pickup';
+            if (type === 'delivery' || type === 'entrega' || type === 'Entrega' || type === 'entrega' || type === 'ENTREGA') {
+                return 'delivery';
+            }
+            return 'pickup';
+        }
+
+        function updateStats() {
+            const pending = orders.filter(o => o.status === 'pending').length;
+            const preparing = orders.filter(o => o.status === 'preparing').length;
+            const completed = historico.filter(o => o.status === 'delivered').length;
+            const revenue = historico.filter(o => o.status === 'delivered').reduce((sum, o) => sum + o.total, 0);
+
+            pendingBadge.textContent = pending;
+            pendingCount.textContent = pending;
+            preparingCount.textContent = preparing;
+            completedToday.textContent = completed;
+            totalRevenue.textContent = formatCurrency(revenue);
+            historicoTotal.textContent = historico.length;
+            historicoBadge.textContent = historico.length;
+            totalHistorico.textContent = historico.length;
         }
 
         function getStatusClass(status) {
@@ -1464,6 +1490,32 @@
             const map = { 'pending': 'Pendente', 'preparing': 'Preparando', 'ready': 'Pronto', 'delivered': 'Entregue',
                 'cancelled': 'Cancelado' };
             return map[status] || status;
+        }
+
+        function getActionButtons(order) {
+            const actions = {
+                'pending': `
+                    <button class="btn-accept" onclick="event.stopPropagation(); updateOrderStatus('${order.id}', 'preparing')">
+                        <i class="fas fa-check"></i> Aceitar
+                    </button>
+                    <button class="btn-cancel" onclick="event.stopPropagation(); updateOrderStatus('${order.id}', 'cancelled')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                `,
+                'preparing': `
+                    <button class="btn-ready" onclick="event.stopPropagation(); updateOrderStatus('${order.id}', 'ready')">
+                        <i class="fas fa-check"></i> Pronto
+                    </button>
+                `,
+                'ready': `
+                    <button class="btn-complete" onclick="event.stopPropagation(); updateOrderStatus('${order.id}', 'delivered')">
+                        <i class="fas fa-check-double"></i> Entregar
+                    </button>
+                `,
+                'delivered': `<span style="color: #22c55e; font-weight: 500;">✓ Entregue</span>`,
+                'cancelled': `<span style="color: #ef4444; font-weight: 500;">✗ Cancelado</span>`
+            };
+            return actions[order.status] || '';
         }
 
         // ===== FUNÇÃO DE IMPRESSÃO TÉRMICA =====
@@ -1495,20 +1547,27 @@
                     <div class="print-section">
                         <div class="print-section-title">👤 CLIENTE</div>
                         <div class="print-row"><span class="label">Nome:</span> <span>${order.customer}</span></div>
-                        <div class="print-row"><span class="label">Telefone:</span> <span>${order.phone}</span></div>
+                        <div class="print-row"><span class="label">Telefone:</span> <span>${order.phone || '(11) 99999-9999'}</span></div>
             `;
 
-            if (order.type === 'delivery' && order.address) {
-                html += `
+            if (order.type === 'delivery' || order.type === 'entrega' || order.type === 'Entrega') {
+                if (order.address) {
+                    html += `
                         <div class="print-row" style="margin-top:2px;"><span class="label">Endereço:</span></div>
                         <div style="padding-left:12px; font-size:11px;">
-                            <div>${order.address.street}, ${order.address.number}</div>
-                            <div>Bairro: ${order.address.neighborhood}</div>
+                            <div>${order.address.street || ''}, ${order.address.number || ''}</div>
+                            <div>Bairro: ${order.address.neighborhood || ''}</div>
+                            ${order.address.complement ? `<div>Complemento: ${order.address.complement}</div>` : ''}
                         </div>
-                `;
+                    `;
+                } else {
+                    html += `
+                        <div class="print-row" style="margin-top:2px;"><span class="label">Endereço:</span> <span>Não informado</span></div>
+                    `;
+                }
             } else {
                 html += `
-                        <div class="print-row" style="margin-top:2px;"><span class="label">Retirada:</span> <span>No local</span></div>
+                    <div class="print-row" style="margin-top:2px;"><span class="label">Retirada:</span> <span>No local</span></div>
                 `;
             }
 
@@ -1542,10 +1601,10 @@
 
                     <div class="print-section">
                         <div class="print-section-title">💳 PAGAMENTO</div>
-                        <div class="print-row"><span class="label">Método:</span> <span>${getPaymentLabel(order.payment.method)}</span></div>
+                        <div class="print-row"><span class="label">Método:</span> <span>${getPaymentLabel(order.payment?.method || 'dinheiro')}</span></div>
             `;
 
-            if (order.payment.method === 'dinheiro' && order.payment.change !== null) {
+            if (order.payment && order.payment.method === 'dinheiro' && order.payment.change !== null) {
                 html += `
                         <div class="print-row"><span class="label">Valor pago:</span> <span>${formatCurrency(order.payment.amount || order.total)}</span></div>
                         <div class="print-row" style="color:#16a34a; font-weight:bold;"><span class="label">Troco:</span> <span>${formatCurrency(order.payment.change)}</span></div>
@@ -1577,50 +1636,30 @@
             showToast(`🖨️ Enviando pedido ${order.number} para impressão...`);
         }
 
-        // ===== FUNÇÕES DE RENDERIZAÇÃO =====
-
-        function getActionButtons(order) {
-            const actions = {
-                'pending': `
-                    <button class="btn-accept" onclick="event.stopPropagation(); updateOrderStatus('${order.id}', 'preparing')">
-                        <i class="fas fa-check"></i> Aceitar
-                    </button>
-                    <button class="btn-cancel" onclick="event.stopPropagation(); updateOrderStatus('${order.id}', 'cancelled')">
-                        <i class="fas fa-times"></i>
-                    </button>
-                `,
-                'preparing': `
-                    <button class="btn-ready" onclick="event.stopPropagation(); updateOrderStatus('${order.id}', 'ready')">
-                        <i class="fas fa-check"></i> Pronto
-                    </button>
-                `,
-                'ready': `
-                    <button class="btn-complete" onclick="event.stopPropagation(); updateOrderStatus('${order.id}', 'delivered')">
-                        <i class="fas fa-check-double"></i> Entregar
-                    </button>
-                `,
-                'delivered': `<span style="color: #22c55e; font-weight: 500;">✓ Entregue</span>`,
-                'cancelled': `<span style="color: #ef4444; font-weight: 500;">✗ Cancelado</span>`
-            };
-            return actions[order.status] || '';
-        }
-
         function renderOrderCard(order) {
             const isSelected = selectedOrderId === order.id;
+            const typeLabel = getTypeLabel(order.type);
+            const typeClass = getTypeClass(order.type);
+            const typeIcon = getTypeIcon(order.type);
+            
             return `
                 <div class="order-card ${isSelected ? 'selected' : ''}" onclick="selectOrder('${order.id}')">
                     <div class="order-top">
                         <div class="order-info">
                             <span class="order-number">${order.number}</span>
                             <span class="order-time"><i class="far fa-clock"></i> ${order.time}</span>
-                            <span class="order-type-badge ${getTypeClass(order.type)}">
-                                <i class="fas ${getTypeIcon(order.type)}"></i> ${getTypeLabel(order.type)}
+                            <span class="order-type-badge ${typeClass}">
+                                <i class="fas ${typeIcon}"></i> ${typeLabel}
                             </span>
                             <span class="order-status ${getStatusClass(order.status)}">${getStatusLabel(order.status)}</span>
                         </div>
                     </div>
                     <div style="font-size: 13px; color: #6b7280; margin-bottom: 8px;">
                         <i class="fas fa-user"></i> ${order.customer}
+                        ${order.type === 'delivery' || order.type === 'entrega' ? 
+                            `<span style="margin-left: 8px;"><i class="fas fa-map-pin"></i> ${order.address?.street || ''}, ${order.address?.number || ''}</span>` : 
+                            ''
+                        }
                     </div>
                     <div class="items-preview">
                         ${order.items.map(item => `<span class="item-tag"><span class="qty">${item.qty}x</span> ${item.name}</span>`).join('')}
@@ -1674,27 +1713,32 @@
                 `;
                 return;
             }
-            dashboardOrdersList.innerHTML = recent.map(order => `
-                <div class="order-card" onclick="selectOrder('${order.id}'); navigateTo('pedidos')">
-                    <div class="order-top">
-                        <div class="order-info">
-                            <span class="order-number">${order.number}</span>
-                            <span class="order-time"><i class="far fa-clock"></i> ${order.time}</span>
-                            <span class="order-type-badge ${getTypeClass(order.type)}" style="font-size: 10px; padding: 2px 10px;">
-                                <i class="fas ${getTypeIcon(order.type)}"></i> ${getTypeLabel(order.type)}
-                            </span>
-                            <span class="order-status ${getStatusClass(order.status)}" style="font-size: 11px;">${getStatusLabel(order.status)}</span>
+            dashboardOrdersList.innerHTML = recent.map(order => {
+                const typeLabel = getTypeLabel(order.type);
+                const typeClass = getTypeClass(order.type);
+                const typeIcon = getTypeIcon(order.type);
+                return `
+                    <div class="order-card" onclick="selectOrder('${order.id}'); navigateTo('pedidos')">
+                        <div class="order-top">
+                            <div class="order-info">
+                                <span class="order-number">${order.number}</span>
+                                <span class="order-time"><i class="far fa-clock"></i> ${order.time}</span>
+                                <span class="order-type-badge ${typeClass}" style="font-size: 10px; padding: 2px 10px;">
+                                    <i class="fas ${typeIcon}"></i> ${typeLabel}
+                                </span>
+                                <span class="order-status ${getStatusClass(order.status)}" style="font-size: 11px;">${getStatusLabel(order.status)}</span>
+                            </div>
+                        </div>
+                        <div style="font-size: 13px; color: #374151; margin-bottom: 6px;">
+                            <i class="fas fa-user"></i> ${order.customer}
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-weight: 600;">${formatCurrency(order.total)}</span>
+                            <span style="font-size: 13px; color: #6b7280;">${order.items.reduce((sum, i) => sum + i.qty, 0)} itens</span>
                         </div>
                     </div>
-                    <div style="font-size: 13px; color: #374151; margin-bottom: 6px;">
-                        <i class="fas fa-user"></i> ${order.customer}
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-weight: 600;">${formatCurrency(order.total)}</span>
-                        <span style="font-size: 13px; color: #6b7280;">${order.items.reduce((sum, i) => sum + i.qty, 0)} itens</span>
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         function selectOrder(id) {
@@ -1722,13 +1766,32 @@
                 return;
             }
 
+            const typeLabel = getTypeLabel(order.type);
+            const typeClass = getTypeClass(order.type);
+            const typeIcon = getTypeIcon(order.type);
+
+            let addressHtml = '';
+            if (order.type === 'delivery' || order.type === 'entrega' || order.type === 'Entrega') {
+                if (order.address) {
+                    addressHtml = `
+                        <div style="margin-top: 8px; padding: 8px 12px; background: #f3e8ff; border-radius: 8px; border-left: 3px solid #8b5cf6;">
+                            <div style="font-size: 13px; color: #6b7280;"><i class="fas fa-map-pin"></i> Endereço:</div>
+                            <div style="font-size: 14px; color: #1a1a2e;">
+                                ${order.address.street || ''}, ${order.address.number || ''} - ${order.address.neighborhood || ''}
+                                ${order.address.complement ? `<br><span style="font-size: 13px; color: #6b7280;">Complemento: ${order.address.complement}</span>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
             detailsContent.innerHTML = `
                 <div style="margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6;">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                         <span style="font-weight: 700; font-size: 18px;">${order.number}</span>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                            <span class="order-type-badge ${getTypeClass(order.type)}">
-                                <i class="fas ${getTypeIcon(order.type)}"></i> ${getTypeLabel(order.type)}
+                            <span class="order-type-badge ${typeClass}">
+                                <i class="fas ${typeIcon}"></i> ${typeLabel}
                             </span>
                             <span class="order-status ${getStatusClass(order.status)}">${getStatusLabel(order.status)}</span>
                         </div>
@@ -1736,6 +1799,7 @@
                     <div style="font-size: 14px; color: #6b7280; margin-top: 4px;">
                         <i class="fas fa-user"></i> ${order.customer} | <i class="far fa-clock"></i> ${order.time}
                     </div>
+                    ${addressHtml}
                 </div>
 
                 <div style="margin-bottom: 12px;">
@@ -1761,34 +1825,15 @@
             `;
         }
 
-        function updateStats() {
-            const pending = orders.filter(o => o.status === 'pending').length;
-            const preparing = orders.filter(o => o.status === 'preparing').length;
-            const completed = historico.filter(o => o.status === 'delivered').length;
-            const revenue = historico.filter(o => o.status === 'delivered').reduce((sum, o) => sum + o.total, 0);
-
-            pendingBadge.textContent = pending;
-            pendingCount.textContent = pending;
-            preparingCount.textContent = preparing;
-            completedToday.textContent = completed;
-            totalRevenue.textContent = formatCurrency(revenue);
-            historicoTotal.textContent = historico.length;
-            historicoBadge.textContent = historico.length;
-            totalHistorico.textContent = historico.length;
-        }
-
         // ===== FUNÇÃO PARA ATUALIZAR STATUS DO PEDIDO NO FIRESTORE =====
         async function updateOrderStatus(orderId, newStatus) {
             try {
-                // Atualizar no Firestore
                 await db.collection('pedidos').doc(orderId).update({
                     status: newStatus,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
 
                 showToast(`✅ Pedido atualizado para ${getStatusLabel(newStatus)}`);
-                
-                // O pedido será atualizado automaticamente via listener
             } catch (error) {
                 console.error('Erro ao atualizar pedido:', error);
                 showToast('❌ Erro ao atualizar pedido');
@@ -1812,23 +1857,28 @@
                 return;
             }
 
-            historicoList.innerHTML = filtered.map(item => `
-                <div class="historico-item">
-                    <div class="h-left">
-                        <span class="h-number">${item.number}</span>
-                        <span class="h-customer"><i class="fas fa-user"></i> ${item.customer}</span>
-                        <span class="h-time"><i class="far fa-clock"></i> ${item.time} - ${item.completedAt || ''}</span>
-                        <span class="order-type-badge ${getTypeClass(item.type)}" style="font-size: 10px; padding: 2px 10px;">
-                            <i class="fas ${getTypeIcon(item.type)}"></i> ${getTypeLabel(item.type)}
-                        </span>
-                        <span class="order-status ${getStatusClass(item.status)}" style="font-size: 11px;">${getStatusLabel(item.status)}</span>
+            historicoList.innerHTML = filtered.map(item => {
+                const typeLabel = getTypeLabel(item.type);
+                const typeClass = getTypeClass(item.type);
+                const typeIcon = getTypeIcon(item.type);
+                return `
+                    <div class="historico-item">
+                        <div class="h-left">
+                            <span class="h-number">${item.number}</span>
+                            <span class="h-customer"><i class="fas fa-user"></i> ${item.customer}</span>
+                            <span class="h-time"><i class="far fa-clock"></i> ${item.time} - ${item.completedAt || ''}</span>
+                            <span class="order-type-badge ${typeClass}" style="font-size: 10px; padding: 2px 10px;">
+                                <i class="fas ${typeIcon}"></i> ${typeLabel}
+                            </span>
+                            <span class="order-status ${getStatusClass(item.status)}" style="font-size: 11px;">${getStatusLabel(item.status)}</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <span class="h-items">${item.items.reduce((sum, i) => sum + i.qty, 0)} itens</span>
+                            <span class="h-total">${formatCurrency(item.total)}</span>
+                        </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span class="h-items">${item.items.reduce((sum, i) => sum + i.qty, 0)} itens</span>
-                        <span class="h-total">${formatCurrency(item.total)}</span>
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
 
             totalHistorico.textContent = filtered.length;
         }
@@ -1837,7 +1887,6 @@
         function renderClientes() {
             if (!clientesGrid) return;
 
-            // Extrair clientes únicos dos pedidos ativos
             const clientesAtivos = [];
             const nomesVistos = new Set();
             
@@ -1867,6 +1916,9 @@
             clientesGrid.innerHTML = clientesAtivos.map(cliente => {
                 const color = getRandomColor();
                 const pedidoAtivo = cliente.pedido;
+                const typeLabel = getTypeLabel(pedidoAtivo.type);
+                const typeIcon = getTypeIcon(pedidoAtivo.type);
+                const typeClass = getTypeClass(pedidoAtivo.type);
 
                 let detalhesHtml = '';
 
@@ -1878,25 +1930,25 @@
                         </div>
                     `;
 
-                    const tipoLabel = getTypeLabel(pedidoAtivo.type);
-                    const tipoIcon = getTypeIcon(pedidoAtivo.type);
                     detalhesHtml += `
                         <div class="detalhe-item" style="background: #f0f2f5; border-left: 3px solid #6b7280;">
-                            <i class="fas ${tipoIcon}"></i>
-                            <div><span class="label">Tipo:</span> <span class="value">${tipoLabel}</span> 
+                            <i class="fas ${typeIcon}"></i>
+                            <div><span class="label">Tipo:</span> <span class="value">${typeLabel}</span> 
                             <span style="color: #6b7280; font-size: 12px;">|</span> 
                             <span class="order-status ${getStatusClass(pedidoAtivo.status)}" style="font-size: 11px; padding: 2px 10px;">${getStatusLabel(pedidoAtivo.status)}</span></div>
                         </div>
                     `;
 
-                    if (pedidoAtivo.type === 'delivery' && pedidoAtivo.address) {
-                        detalhesHtml += `
-                            <div class="detalhe-item address">
-                                <i class="fas fa-map-pin"></i>
-                                <div><span class="label">Endereço:</span> <span class="value">${pedidoAtivo.address.street}, ${pedidoAtivo.address.number} - ${pedidoAtivo.address.neighborhood}</span></div>
-                            </div>
-                        `;
-                    } else if (pedidoAtivo.type === 'pickup') {
+                    if (pedidoAtivo.type === 'delivery' || pedidoAtivo.type === 'entrega' || pedidoAtivo.type === 'Entrega') {
+                        if (pedidoAtivo.address) {
+                            detalhesHtml += `
+                                <div class="detalhe-item address">
+                                    <i class="fas fa-map-pin"></i>
+                                    <div><span class="label">Endereço:</span> <span class="value">${pedidoAtivo.address.street || ''}, ${pedidoAtivo.address.number || ''} - ${pedidoAtivo.address.neighborhood || ''}</span></div>
+                                </div>
+                            `;
+                        }
+                    } else {
                         detalhesHtml += `
                             <div class="detalhe-item" style="background: #fef3e8; border-left: 3px solid #f97316;">
                                 <i class="fas fa-store"></i>
@@ -2013,22 +2065,22 @@
             if (isListening) return;
             isListening = true;
 
-            // Atualizar status de conexão
             statusDot.className = 'status-dot connecting';
             statusText.textContent = 'Conectando...';
 
-            // Escutar mudanças na coleção 'pedidos'
             db.collection('pedidos')
                 .orderBy('timestamp', 'desc')
                 .onSnapshot((snapshot) => {
-                    // Conectado com sucesso
                     statusDot.className = 'status-dot online';
                     statusText.textContent = 'Online';
 
-                    // Processar mudanças
                     snapshot.docChanges().forEach((change) => {
                         const data = change.doc.data();
                         const docId = change.doc.id;
+                        
+                        // Log para debug
+                        console.log('Pedido recebido:', { id: docId, type: data.type, ...data });
+
                         const orderData = {
                             id: docId,
                             ...data,
@@ -2036,26 +2088,21 @@
                         };
 
                         if (change.type === 'added') {
-                            // Novo pedido adicionado
                             if (orderData.status !== 'delivered' && orderData.status !== 'cancelled') {
                                 orders.push(orderData);
                                 showToast(`🆕 Novo pedido de ${orderData.customer}!`);
                                 playNotificationSound();
-                                // Mostrar notificação visual
                                 notificationDot.style.display = 'block';
                                 setTimeout(() => {
                                     notificationDot.style.display = 'none';
                                 }, 5000);
                             } else {
-                                // Pedido já entregue ou cancelado - vai para o histórico
                                 historico.push(orderData);
                             }
                         } else if (change.type === 'modified') {
-                            // Pedido atualizado
                             const index = orders.findIndex(o => o.id === docId);
                             if (index !== -1) {
                                 if (orderData.status === 'delivered' || orderData.status === 'cancelled') {
-                                    // Mover para histórico
                                     const removed = orders.splice(index, 1)[0];
                                     historico.push({ ...removed, ...orderData });
                                     showToast(`✅ Pedido ${orderData.number} ${getStatusLabel(orderData.status)}`);
@@ -2063,14 +2110,12 @@
                                     orders[index] = { ...orders[index], ...orderData };
                                 }
                             } else {
-                                // Verificar se está no histórico
                                 const histIndex = historico.findIndex(o => o.id === docId);
                                 if (histIndex !== -1) {
                                     historico[histIndex] = { ...historico[histIndex], ...orderData };
                                 }
                             }
                         } else if (change.type === 'removed') {
-                            // Pedido removido
                             const index = orders.findIndex(o => o.id === docId);
                             if (index !== -1) {
                                 orders.splice(index, 1);
@@ -2082,7 +2127,6 @@
                         }
                     });
 
-                    // Atualizar a UI
                     renderOrders();
                     renderDashboardOrders();
                     renderHistorico();
@@ -2095,14 +2139,6 @@
                     statusDot.className = 'status-dot offline';
                     statusText.textContent = 'Offline';
                     showToast('⚠️ Erro de conexão com o Firestore');
-                });
-
-            // Também escutar histórico (pedidos finalizados)
-            db.collection('pedidos')
-                .where('status', 'in', ['delivered', 'cancelled'])
-                .orderBy('timestamp', 'desc')
-                .onSnapshot((snapshot) => {
-                    // Já estamos tratando no listener principal
                 });
         }
 
@@ -2170,10 +2206,8 @@
         console.log('🟢 Painel Administrativo - Dorata Coxinhas');
         console.log('🔌 Conectando ao Firestore...');
 
-        // Iniciar listener do Firestore
         setupFirestoreListener();
 
-        // Renderizar estados iniciais
         renderOrders();
         renderDashboardOrders();
         renderHistorico();
